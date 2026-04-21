@@ -1,0 +1,8 @@
+django
+djangorestframework
+psycopg2-binary
+faker
+python-decouple
+django-debug-toolbar
+djangorestframework-simplejwt
+django-cors-headers
