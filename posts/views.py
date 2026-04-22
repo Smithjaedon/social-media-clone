@@ -1,7 +1,9 @@
+from multiprocessing import context
+
 from rest_framework import viewsets
 from rest_framework.response import Response
-from .models import User, Post, Like, Comment, Follow
-from .serializers import UserSerializer, PostSerializer, LikeSerializer, CommentSerializer, FollowSerializer
+from .models import User, Post, Like, Comment, Follow, Profile
+from .serializers import UserSerializer, PostSerializer, LikeSerializer, CommentSerializer, FollowSerializer, ProfileSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from django.db import transaction
@@ -26,8 +28,9 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         search = self.request.query_params.get('search', None)
-        if search:
-            return self.queryset.filter(username__icontains=search)
+        postId = self.request.query_params.get('postId', None)
+        if search or postId:
+            return self.queryset.filter(username__icontains=search, posts__id=postId)
         return self.queryset
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='follow')
@@ -43,6 +46,18 @@ class UserViewSet(viewsets.ModelViewSet):
             else:
                 follow.delete()
                 return Response({'status': 'user unfollowed'})
+            
+    @action(detail=True, methods=['delete'], url_path='unfollow')
+    def unfollow_user(self, request, pk=None):
+        with transaction.atomic():
+            user_to_unfollow = self.get_object()
+            user = request.user
+            follow = Follow.objects.filter(follower=user, following=user_to_unfollow).first()
+            if follow:
+                follow.delete()
+                return Response({'status': 'user unfollowed'})
+            else:
+                return Response({'status': 'not following this user'}, status=400)
 
     @action(detail=True, methods=['get'], url_path='posts')
     def posts(self, request, pk=None):
@@ -50,7 +65,20 @@ class UserViewSet(viewsets.ModelViewSet):
         posts = Post.objects.filter(author=user).order_by("-like_count","-created_at")
         serializer = PostSerializer(posts, many=True)
         return Response(serializer.data)
-
+    
+    @action(detail=True, methods=['get'], url_path='profile')
+    def profile(self, request, pk=None):
+        user = self.get_object()
+        posts = Post.objects.filter(author=user).order_by("-created_at")
+        serializer = PostSerializer(posts, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='suggestions', permission_classes=[IsAuthenticated])
+    def suggestions(self, request, username=None):
+        user = User.objects.exclude(id=request.user.id).only('id', 'username', 'display_name').order_by("?")
+        four_users = user[:3]
+        serializer = self.get_serializer(four_users, many=True)
+        return Response(serializer.data)
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -66,10 +94,13 @@ class PostViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user_id = self.request.query_params.get('user', None)
         username = self.request.query_params.get('username', None)
+        post_id = self.request.query_params.get('postId', None) 
         if user_id:
             return self.queryset.filter(author__id=user_id)
         if username:
             return self.queryset.filter(author__username=username)
+        if post_id:
+            return self.queryset.filter(id=post_id).select_related('author').prefetch_related('comments')
 
         return self.queryset
 
@@ -108,6 +139,7 @@ class PostViewSet(viewsets.ModelViewSet):
             if page is not None:
                 return self.get_paginated_response(page)
             return Response(res)
+    
 
     @action(detail=False, methods=['get'], url_path='feed', permission_classes=[IsAuthenticated])
     def feed(self, request):
@@ -121,6 +153,7 @@ class PostViewSet(viewsets.ModelViewSet):
                     "id": post.id,
                     "author": post.author.username,
                     "display_name": post.author.display_name,
+                    "username": post.author.username,
                     "content": post.content,
                     "created_at": post.created_at,
                     "like_count": post.like_count,
@@ -137,6 +170,27 @@ class LikeViewSet(viewsets.ModelViewSet):
     queryset = Like.objects.all()
     serializer_class = LikeSerializer
     permission_classes = [IsAuthenticated]
+    
+class ProfileViewSet(viewsets.ModelViewSet):
+    queryset = Profile.objects.all()
+    serializer_class = ProfileSerializer
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'], url_path='me', permission_classes=[IsAuthenticated])
+    def me(self, request):
+        with transaction.atomic():
+            user = request.user
+            profile = Profile.objects.get(user=user)
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='(?P<username>\w+)', permission_classes=[IsAuthenticated])
+    def page(self, request, username=None):
+        with transaction.atomic():
+            user = User.objects.get(username=username)
+            profile = Profile.objects.get(user=user)
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data)
 
 class CommentViewSet(viewsets.ModelViewSet):
     queryset = Comment.objects.all()

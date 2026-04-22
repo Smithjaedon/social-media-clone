@@ -18,7 +18,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework import routers
-from posts.views import UserViewSet, PostViewSet, LikeViewSet, CommentViewSet, FollowViewSet
+from posts.views import UserViewSet, PostViewSet, LikeViewSet, CommentViewSet, FollowViewSet, ProfileViewSet
 from debug_toolbar.toolbar import debug_toolbar_urls
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenBlacklistView
@@ -29,6 +29,7 @@ router.register(r'posts', PostViewSet)
 router.register(r'likes', LikeViewSet)
 router.register(r'comments', CommentViewSet)
 router.register(r'follows', FollowViewSet)
+router.register(r'profiles', ProfileViewSet)
 
 
 urlpatterns = [
