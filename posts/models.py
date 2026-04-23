@@ -1,13 +1,7 @@
 from django.db import models, migrations
 from django.contrib.auth.models import AbstractUser
 import uuid
-from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.operations import TrigramExtension
 
-class Migration(migrations.Migration):
-  operations = [
-    TrigramExtension(),
-  ]
 
 # Create your models here.
 class User(AbstractUser):
@@ -15,10 +9,6 @@ class User(AbstractUser):
   display_name = models.CharField(max_length=255, null=False)
   is_admin = models.BooleanField(default=False)
   
-  class Meta:
-    indexes = [
-      GinIndex(fields=['display_name'], name='display_name_gin_idx'),
-    ]
   
   def __str__(self):
     return self.username
@@ -38,12 +28,7 @@ class Post(models.Model):
   created_at = models.DateTimeField(auto_now_add=True)
   like_count = models.PositiveIntegerField(default=0, db_index=True)
   
-  
-  class Meta:
-    indexes = [
-      GinIndex(fields=['content'], name='content_gin_idx'),
-    ]
-  
+
   def __str__(self):
     return f"Post by {self.author.username} at {self.created_at}"
   

@@ -3,3 +3,13 @@ test:
 
 run:
 	python manage.py runserver
+
+migrate:
+	python manage.py migrate
+
+makemigrations:
+	python manage.py makemigrations
+
+mm:
+	python manage.py makemigrations
+	python manage.py migrate

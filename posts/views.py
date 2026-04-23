@@ -1,5 +1,3 @@
-from multiprocessing import context
-
 from rest_framework import viewsets
 from rest_framework.response import Response
 from .models import User, Post, Like, Comment, Follow, Profile

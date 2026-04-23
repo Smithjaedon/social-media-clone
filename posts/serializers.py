@@ -1,3 +1,5 @@
+from os import read
+
 from rest_framework import serializers
 from .models import User, Post, Like, Comment, Follow, Profile
 
@@ -6,11 +8,15 @@ class UserSerializer(serializers.ModelSerializer):
     def get_user_posts(self, obj):
         return obj.posts.values()
     
-    user_posts = serializers.SerializerMethodField()
+    user_posts = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', "display_name", "is_admin", "user_posts"]
+        fields = ['id', 'username', 'password', 'email', "display_name", "is_admin", "user_posts"]
+        
+        extra_kwargs = {
+            "password": {"write_only": True}
+        }
         
     def create(self, validated_date):
       user = User.objects.create_user(**validated_date)
@@ -25,7 +31,7 @@ class PostSerializer(serializers.ModelSerializer):
     def get_comments(self, obj):
         return CommentSerializer(obj.comments.all(), many=True).data
     
-    comments = serializers.SerializerMethodField()
+    comments = serializers.SerializerMethodField(read_only=True)
     author_username = serializers.CharField(source='author.username', read_only=True)
     author_display_name = serializers.CharField(source='author.display_name', read_only=True)
     class Meta:
@@ -47,7 +53,6 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ['id', 'user', 'bio', "user_posts", "follower_count", "following_count"]
-    
     
 
 class LikeSerializer(serializers.ModelSerializer):
