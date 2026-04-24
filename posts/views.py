@@ -8,6 +8,8 @@ from django.db import transaction
 from django.db.models import F
 from rest_framework.pagination import PageNumberPagination
 
+from django.core.cache import cache
+
 class PostPagination(PageNumberPagination):
     page_size = 20
     page_query_param = 'page'
@@ -38,12 +40,15 @@ class UserViewSet(viewsets.ModelViewSet):
             user = request.user
             if user == user_to_follow:
                 return Response({'status': 'cannot follow yourself'}, status=400)
-            follow, created = Follow.objects.get_or_create(follower=user, following=user_to_follow)
-            if created:
-                return Response({'status': 'user followed'})
-            else:
-                follow.delete()
-                return Response({'status': 'user unfollowed'})
+            try:
+                follow, created = Follow.objects.get_or_create(follower=user, following=user_to_follow)
+                if created:
+                    return Response({'status': 'user followed'})
+                else:
+                    follow.delete()
+                    return Response({'status': 'user unfollowed'})
+            except:
+                return Response({'status': 'user not found'}, status=404)
             
     @action(detail=True, methods=['delete'], url_path='unfollow')
     def unfollow_user(self, request, pk=None):
@@ -108,17 +113,27 @@ class PostViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             post = self.get_object()
             user = request.user
-            like, created = Like.objects.get_or_create(user=user, post=post)
-            if created:
-                Post.objects.filter(id=post.id).update(like_count=F('like_count') + 1)
-                return Response({'status': 'post liked'})
-            else:
-                like.delete()
-                Post.objects.filter(id=post.id).update(like_count=F('like_count') - 1)
-                return Response({'status': 'post unliked'})
+            
+            try:
+                like, created = Like.objects.get_or_create(user=user, post=post)
+                if created:
+                    Post.objects.filter(id=post.id).update(like_count=F('like_count') + 1)
+                    return Response({'status': 'post liked'})
+                else:
+                    like.delete()
+                    Post.objects.filter(id=post.id).update(like_count=F('like_count') - 1)
+                    return Response({'status': 'post unliked'})
+            except:
+                return Response({'status': 'post not found'}, status=404)
 
     @action(detail=False, methods=['get'], url_path='details')
     def details(self, request, pk=None):
+        
+        posts_cache = cache.get(f'posts')
+        if posts_cache:
+            page = self.paginate_queryset(posts_cache)
+            return self.get_paginated_response(page)
+        
         with transaction.atomic():
             res = []
             posts = Post.objects.select_related('author').prefetch_related('comments').all()
@@ -134,6 +149,9 @@ class PostViewSet(viewsets.ModelViewSet):
                 }
                 res.append(pkg)
             page = self.paginate_queryset(res)
+            
+            cache.set(f'posts', res, 60 * 1)
+            
             if page is not None:
                 return self.get_paginated_response(page)
             return Response(res)
@@ -141,6 +159,12 @@ class PostViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='feed', permission_classes=[IsAuthenticated])
     def feed(self, request):
+        
+        user_feed_cache = cache.get(f'feed_{request.user.username}')
+        if user_feed_cache:
+            page = self.paginate_queryset(user_feed_cache)
+            return self.get_paginated_response(page)
+        
         with transaction.atomic():
             user = request.user
             following = Follow.objects.filter(follower=user).values_list('following__id', flat=True)
@@ -160,6 +184,7 @@ class PostViewSet(viewsets.ModelViewSet):
                 res.append(pkg)
                 
             page = self.paginate_queryset(res)
+            cache.set(f'feed_{user.username}', page, 60 * 1)
             if page is not None:
                 return self.get_paginated_response(page)
             return Response(res)
@@ -174,20 +199,56 @@ class ProfileViewSet(viewsets.ModelViewSet):
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
     
+    
+    def perform_update(self, serializer):
+        profile = serializer.save()
+        cache.delete(f'profile_{profile.user.username}')
+        
+    def perform_destroy(self, instance):
+        cache.delete(f'profile_{instance.user.username}')
+        instance.delete()
+    
     @action(detail=False, methods=['get'], url_path='me', permission_classes=[IsAuthenticated])
     def me(self, request):
+        
+        authenticated_user_profile_cache = cache.get(f'profile_{request.user.username}')
+        if authenticated_user_profile_cache:
+            return Response(authenticated_user_profile_cache)
+        
+        
         with transaction.atomic():
-            user = request.user
-            profile = Profile.objects.get(user=user)
+            try:
+                user = request.user
+                profile = Profile.objects.get(user=user)
+                
+            except User.DoesNotExist:
+                return Response({'error': 'user not found'}, status=404)
+            except Profile.DoesNotExist:
+                return Response({'error': 'profile not found'}, status=404)
+            
             serializer = self.get_serializer(profile)
+            cache.set(f'profile_{user.username}', serializer.data, 60 * 8)
             return Response(serializer.data)
     
     @action(detail=False, methods=['get'], url_path='(?P<username>\w+)', permission_classes=[IsAuthenticated])
     def page(self, request, username=None):
+        
+        user_profile_cache = cache.get(f'profile_{username}')
+        if user_profile_cache:
+            return Response(user_profile_cache)
+        
         with transaction.atomic():
-            user = User.objects.get(username=username)
-            profile = Profile.objects.get(user=user)
+            try:
+                user = User.objects.get(username=username)
+                profile = Profile.objects.get(user=user)
+                
+            except User.DoesNotExist:
+                return Response({'error': 'user not found'}, status=404)
+            except Profile.DoesNotExist:
+                return Response({'error': 'profile not found'}, status=404)
+            
             serializer = self.get_serializer(profile)
+            cache.set(f'profile_{user.username}', serializer.data, 60 * 8)
             return Response(serializer.data)
 
 class CommentViewSet(viewsets.ModelViewSet):

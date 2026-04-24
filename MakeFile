@@ -13,3 +13,6 @@ makemigrations:
 mm:
 	python manage.py makemigrations
 	python manage.py migrate
+
+redis-start:
+	docker run -d -p 6379:6379 --name redis redis
